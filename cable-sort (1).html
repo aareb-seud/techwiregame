@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rack Wrangler — Cable Management</title>
+<style>
+:root{--bg:#0c0f12;--panel:#151b20;--line:#26313a;--text:#dbe4e8;--dim:#7f939c;
+--ok:#3ec48f;--bad:#e0524a;--warn:#e0a020;--amber:#ffb347}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.4 system-ui,sans-serif;
+display:flex;flex-direction:column;align-items:center;padding:18px 10px 40px}
+h1{font-size:20px;letter-spacing:.3px;margin:0 0 2px}
+#sub{color:var(--dim);font-size:13px;margin-bottom:16px;text-align:center;max-width:640px}
+#menu{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:26px 28px;max-width:640px;text-align:center}
+#menu p{color:var(--dim);margin:0 0 16px;font-size:14px}
+.diffRow{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
+.diffBtn{flex:1 1 170px;background:#10151a;border:1px solid var(--line);border-radius:10px;padding:16px 14px;
+color:var(--text);cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:6px;font:inherit}
+.diffBtn:hover{border-color:var(--amber)}
+.diffBtn b{font-size:15px}
+.diffBtn span{font-size:12px;color:var(--dim);line-height:1.35}
+.diffBtn.easy b{color:var(--ok)}
+.diffBtn.medium b{color:var(--warn)}
+.diffBtn.hard b{color:var(--bad)}
+#gameUI{display:none;flex-direction:column;align-items:center;width:100%}
+#hud{display:flex;gap:22px;align-items:center;background:var(--panel);border:1px solid var(--line);
+border-radius:10px;padding:8px 18px;margin-bottom:10px}
+#hud .stat{text-align:center}
+#hud .stat b{display:block;font:700 20px/1 "Courier New",monospace;color:var(--amber)}
+#hud .stat span{font-size:11px;color:var(--dim)}
+#wrap{position:relative;max-width:1040px;width:100%}
+canvas{display:block;background:linear-gradient(180deg,#11161b,#0d1114);border:1px solid var(--line);
+border-radius:12px;touch-action:none;max-width:100%;width:100%;height:auto}
+#toast{position:absolute;left:50%;bottom:14px;transform:translate(-50%,0);max-width:90%;
+background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--dim);
+padding:8px 14px;border-radius:8px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none}
+#toast.show{opacity:1}
+#toast.good{border-left-color:var(--ok)}
+#toast.bad{border-left-color:var(--bad)}
+#toast.warn{border-left-color:var(--warn)}
+#fact{margin-top:10px;min-height:34px;font-size:13px;color:var(--dim);text-align:center;max-width:760px}
+#fact b{color:var(--text)}
+#help{font-size:12px;color:var(--dim);margin-top:6px;max-width:760px;text-align:center}
+#help b{color:var(--text)}
+#end{position:fixed;inset:0;background:rgba(6,8,10,.88);display:none;align-items:center;justify-content:center;z-index:5}
+#end.show{display:flex}
+#card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:26px 32px;max-width:420px;text-align:center}
+#card h2{margin-top:0;font-size:24px}
+#grade{font:700 46px/1 "Courier New",monospace;color:var(--amber);margin:4px 0}
+#card ul{text-align:left;font-size:12.5px;color:var(--dim);margin:14px 0;padding-left:18px;max-height:200px;overflow:auto}
+#card button{margin-top:8px;background:var(--ok);color:#06110c;border:0;border-radius:8px;
+padding:10px 22px;font-size:14px;font-weight:700;cursor:pointer}
+</style>
+</head>
+<body>
+<h1>Rack Wrangler</h1>
+<div id="sub">Untangle the pile and route each cable into a matching port — a good connection snaps itself straight.</div>
+
+<div id="menu">
+ <p>Pick a difficulty. It only changes how big a mess you're starting with.</p>
+ <div class="diffRow">
+  <button class="diffBtn easy" data-d="easy"><b>Easy</b><span>Mostly plugged in right already — just tidy up the stragglers and flip a plug or two.</span></button>
+  <button class="diffBtn medium" data-d="medium"><b>Medium</b><span>A fair mix of wrong ports and randomly-rotated plugs.</span></button>
+  <button class="diffBtn hard" data-d="hard"><b>Hard</b><span>Total spaghetti — almost nothing starts where it belongs.</span></button>
+ </div>
+ <p style="margin:16px 0 0;font-size:12px">⚠️ A cable plugged into a port outside its own row scores <b>&minus;5</b> — keep runs straight for full credit.</p>
+</div>
+
+<div id="gameUI">
+<div id="hud">
+ <div class="stat"><b id="score">0</b><span>SCORE</span></div>
+ <div class="stat"><b id="time">0:00</b><span>TIME LEFT</span></div>
+ <div class="stat"><b id="left">0</b><span>UNSORTED</span></div>
+</div>
+<div id="wrap">
+ <canvas id="c" width="1040" height="650"></canvas>
+ <div id="toast"></div>
+</div>
+<div id="fact">Grab any glowing plug to see what it is.</div>
+<div id="help">Drag a plug's loose end near a port — once it seats, the cable pulls itself straight. Plugging into a
+port outside your cable's own row costs 5 points, so line it up with a port in that row when you can.
+<b>Hold R</b> while dragging a keyed USB‑A plug to slowly spin it — ±15° is close enough. The speed still
+has to match (2.0→2.0, Gigabit→Gigabit) to count as sorted.</div>
+</div>
+
+<div id="end"><div id="card">
+ <h2>Rack Report</h2>
+ <div id="grade">S</div>
+ <div id="finalScore"></div>
+ <ul id="breakdown"></ul>
+ <button onclick="location.reload()">Run it back</button>
+</div></div>
+
+<script>
+const cv=document.getElementById('c'), ctx=cv.getContext('2d');
+const W=cv.width,H=cv.height,SEG=7,GRAV=0.3,ROT_SPEED=150,STRAIGHT_TOL=15,STRAIGHT_PENALTY=5;
+const mouse={x:0,y:0};
+let grabbed=null,timeLeft=300,running=false,lastTs=null,timerHandle=null;
+const DEVX=115, RACKX=890;
+
+const TYPES={
+ usbA3:{name:'USB 3.0',shape:'rectA',rating:'usb3',color:'#2f7fe0',
+  fact:'USB 3.0 (SuperSpeed) uses the same rectangle as 2.0 but wires up to 5 Gbps — that\'s the blue tab inside.'},
+ usbA2:{name:'USB 2.0',shape:'rectA',rating:'usb2',color:'#c9d3d8',
+  fact:'USB 2.0 is the original rectangular plug, keyed to go in only one way up. Tops out at 480 Mbps.'},
+ usbC:{name:'USB-C',shape:'oval',rating:'usbc',color:'#9aa4ab',
+  fact:'USB-C is symmetrical top and bottom, so it clicks in either way up — nothing to key.'},
+ cat6:{name:'Gigabit LAN',shape:'rj45',rating:'gig',color:'#3ec48f',
+  fact:'Cat6 twisted-pair supports up to 10 Gbps at short range — a good match for a busy uplink.'},
+ cat5e:{name:'100M LAN',shape:'rj45',rating:'std',color:'#e0c23e',
+  fact:'Cat5e comfortably handles 100 Mbps–1 Gbps at short range, but loses headroom on long runs.'},
+ hdmi:{name:'HDMI',shape:'trap',rating:'hdmi',color:'#e0524a',
+  fact:'HDMI\'s trapezoid shell only fits one way, carrying both picture and sound in one cable.'},
+ dp:{name:'DisplayPort',shape:'trapDP',rating:'dp',color:'#a45ee0',
+  fact:'DisplayPort adds a small latch clip and can drive several monitors from a single output.'}
+};
+const DEVNAMES={usbA3:['SSD One','SSD Two','Webcam'],usbA2:['Mouse','Keyboard'],usbC:['Tablet','Phone'],
+ cat6:['NAS','Uplink'],cat5e:['Security Cam'],hdmi:['Monitor A'],dp:['Monitor B']};
+const mismatchNote={
+ usbA3:'Fits, but this drive gets capped down to 2.0\'s 480 Mbps here.',
+ usbA2:'Fits, but the port\'s extra speed is wasted on a 2.0 device.',
+ cat6:'Works, but Cat6\'s extra speed is wasted on a 100 Mbps link.',
+ cat5e:'Works, but Cat5e can bottleneck a Gigabit link on longer runs.'
+};
+const FAMILIES=[{kind:'usbA3',count:3},{kind:'usbA2',count:2},{kind:'usbC',count:2},
+ {kind:'cat6',count:2},{kind:'cat5e',count:1},{kind:'hdmi',count:1},{kind:'dp',count:1}];
+const DIFFS={
+ easy:{rectAMismatch:2,rj45Mismatch:0,rotSpread:60,slack:1.05,shuffleWithin:false,messSpread:18,time:330},
+ medium:{rectAMismatch:2,rj45Mismatch:2,rotSpread:180,slack:1.08,shuffleWithin:true,messSpread:45,time:300},
+ hard:{rectAMismatch:4,rj45Mismatch:2,rotSpread:180,slack:1.12,shuffleWithin:true,messSpread:80,time:270}
+};
+
+let ports=[],cables=[];
+function shuffleArr(a){for(let i=a.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;[a[i],a[j]]=[a[j],a[i]];}return a;}
+
+function assignGroup(cIdxs,pIdxs,mismatchTarget,shuffleWithin){
+ const cBuckets={},pBuckets={};
+ cIdxs.forEach(ci=>{const r=cables[ci].type.rating;(cBuckets[r]=cBuckets[r]||[]).push(ci);});
+ pIdxs.forEach(pi=>{const r=ports[pi].rating;(pBuckets[r]=pBuckets[r]||[]).push(pi);});
+ const assign={};
+ Object.keys(cBuckets).forEach(r=>{
+  const cs=cBuckets[r].slice(),ps=(pBuckets[r]||[]).slice();
+  if(shuffleWithin)shuffleArr(ps);
+  cs.forEach((ci,i)=>assign[ci]=ps[i]);
+ });
+ const ratingKeys=Object.keys(cBuckets);
+ if(ratingKeys.length>1&&mismatchTarget>0){
+  const poolA=shuffleArr(cBuckets[ratingKeys[0]].slice());
+  const poolB=shuffleArr(cBuckets[ratingKeys[1]].slice());
+  const n=Math.min(Math.floor(mismatchTarget/2),poolA.length,poolB.length);
+  for(let i=0;i<n;i++){const a=poolA[i],b=poolB[i],tmp=assign[a];assign[a]=assign[b];assign[b]=tmp;}
+ }
+ return assign;
+}
+
+function build(diff){
+ ports=[];cables=[];
+ let py=52,dy=52;
+ FAMILIES.forEach(f=>{
+  const t=TYPES[f.kind];
+  py+=16;
+  for(let i=0;i<f.count;i++){
+   ports.push({shape:t.shape,rating:t.rating,label:t.name,color:t.color,x:RACKX,y:py,
+    header:i===0?t.name:null,occupant:null,idx:ports.length});
+   py+=40;
+  }
+  dy+=16;
+  for(let i=0;i<f.count;i++){
+   cables.push({kind:f.kind,dev:DEVNAMES[f.kind][i],devX:DEVX,devY:dy,header:i===0?t.name:null});
+   dy+=40;
+  }
+ });
+ cables.forEach(c=>{
+  c.type=TYPES[c.kind];
+  const cand=ports.filter(p=>p.shape===c.type.shape);
+  const maxD=Math.max(...cand.map(p=>Math.hypot(p.x-c.devX,p.y-c.devY)));
+  c.totalLen=maxD*diff.slack;c.segLen=c.totalLen/SEG;
+  c.angle=c.type.shape==='rectA'?(((Math.random()*2-1)*diff.rotSpread)+360)%360:0;
+  c.connectedPort=null;c.dragging=false;
+ });
+ const shapeGroups={};
+ cables.forEach((c,i)=>{(shapeGroups[c.type.shape]=shapeGroups[c.type.shape]||{c:[],p:[]}).c.push(i);});
+ ports.forEach((p,i)=>{(shapeGroups[p.shape]=shapeGroups[p.shape]||{c:[],p:[]}).p.push(i);});
+ const mismatchFor={rectA:diff.rectAMismatch,rj45:diff.rj45Mismatch};
+ let tangleN=0;
+ Object.entries(shapeGroups).forEach(([shape,g])=>{
+  if(g.c.length>1){
+   const assign=assignGroup(g.c,g.p,mismatchFor[shape]||0,diff.shuffleWithin);
+   g.c.forEach(ci=>{
+    const pIdx=assign[ci];cables[ci].connectedPort=pIdx;ports[pIdx].occupant=ci;
+    cables[ci].restX=ports[pIdx].x;cables[ci].restY=ports[pIdx].y;
+   });
+  }else{
+   const ci=g.c[0];
+   cables[ci].restX=540+(Math.random()*2-1)*diff.messSpread;
+   cables[ci].restY=300+(Math.random()*2-1)*diff.messSpread;tangleN++;
+  }
+ });
+ cables.forEach(c=>{
+  const pts=[];
+  for(let s=0;s<=SEG;s++){const tt=s/SEG;
+   pts.push({x:c.devX+(c.restX-c.devX)*tt,y:c.devY+(c.restY-c.devY)*tt+Math.sin(tt*Math.PI)*16,px:0,py:0});}
+  pts.forEach(p=>{p.px=p.x;p.py=p.y;});
+  c.pts=pts;
+ });
+}
+
+function angDiff(a,target){return ((a-target+540)%360)-180;}
+
+function stepCable(c,dt){
+ const pts=c.pts,n=pts.length;
+ pts[0].x=c.devX;pts[0].y=c.devY;
+ if(c.dragging){
+  if(keys['r']&&c.type.shape==='rectA')c.angle=(c.angle+ROT_SPEED*dt)%360;
+  let dx=mouse.x-c.devX,dy=mouse.y-c.devY,d=Math.hypot(dx,dy);
+  const max=c.totalLen*0.98;
+  if(d>max){dx*=max/d;dy*=max/d;}
+  pts[n-1].x=c.devX+dx;pts[n-1].y=c.devY+dy;
+ }else if(c.connectedPort!=null){
+  const port=ports[c.connectedPort];
+  pts[n-1].x=port.x;pts[n-1].y=port.y;
+ }else{pts[n-1].x=c.restX;pts[n-1].y=c.restY;}
+ pts[0].px=pts[0].x;pts[0].py=pts[0].y;pts[n-1].px=pts[n-1].x;pts[n-1].py=pts[n-1].y;
+ if(c.connectedPort!=null&&!c.dragging){
+  for(let i=1;i<n-1;i++){const tt=i/SEG,tx=pts[0].x+(pts[n-1].x-pts[0].x)*tt,ty=pts[0].y+(pts[n-1].y-pts[0].y)*tt;
+   pts[i].x+=(tx-pts[i].x)*0.22;pts[i].y+=(ty-pts[i].y)*0.22;pts[i].px=pts[i].x;pts[i].py=pts[i].y;}
+  return;
+ }
+ for(let i=1;i<n-1;i++){const p=pts[i];
+  const vx=(p.x-p.px)*0.98,vy=(p.y-p.py)*0.98;
+  p.px=p.x;p.py=p.y;p.x+=vx;p.y+=vy+GRAV;}
+ for(let it=0;it<6;it++)for(let i=0;i<n-1;i++){
+  const a=pts[i],b=pts[i+1];
+  let dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||0.001;
+  const diff=(d-c.segLen)/d,ax=dx*.5*diff,ay=dy*.5*diff;
+  if(i!==0){a.x+=ax;a.y+=ay;}
+  if(i+1!==n-1){b.x-=ax;b.y-=ay;}
+ }
+}
+
+function drawShape(shape,color,angleDeg){
+ ctx.save();
+ if(angleDeg)ctx.rotate(angleDeg*Math.PI/180);
+ ctx.fillStyle=color;ctx.strokeStyle='rgba(0,0,0,.55)';ctx.lineWidth=1.2;
+ if(shape==='rectA'){
+  ctx.beginPath();ctx.rect(-14,-9,28,18);ctx.fill();ctx.stroke();
+  ctx.fillStyle='#ffce6b';ctx.beginPath();ctx.moveTo(-5,-9);ctx.lineTo(5,-9);ctx.lineTo(0,-15);ctx.closePath();ctx.fill();
+ }else if(shape==='oval'){
+  ctx.beginPath();if(ctx.roundRect)ctx.roundRect(-14,-7,28,14,7);else ctx.rect(-14,-7,28,14);ctx.fill();ctx.stroke();
+ }else if(shape==='rj45'){
+  ctx.beginPath();ctx.rect(-11,-10,22,20);ctx.fill();ctx.stroke();
+  ctx.fillStyle='rgba(0,0,0,.45)';ctx.fillRect(-3,-10,6,5);
+ }else if(shape==='trap'){
+  ctx.beginPath();ctx.moveTo(-16,-9);ctx.lineTo(16,-9);ctx.lineTo(11,9);ctx.lineTo(-11,9);ctx.closePath();ctx.fill();ctx.stroke();
+ }else if(shape==='trapDP'){
+  ctx.beginPath();ctx.moveTo(-14,-9);ctx.lineTo(10,-9);ctx.lineTo(14,0);ctx.lineTo(10,9);ctx.lineTo(-14,9);ctx.closePath();ctx.fill();ctx.stroke();
+ }
+ ctx.restore();
+}
+
+function draw(ts){
+ if(lastTs==null)lastTs=ts;
+ const dt=Math.min(0.04,(ts-lastTs)/1000);lastTs=ts;
+ ctx.clearRect(0,0,W,H);
+ ctx.textAlign='left';ctx.font='12px system-ui';
+ cables.forEach(c=>{
+  if(c.header){ctx.fillStyle='#5c6f78';ctx.fillText(c.header,c.devX-58,c.devY-26);}
+  ctx.fillStyle='#1c242b';ctx.strokeStyle='#2c3944';ctx.lineWidth=1;
+  ctx.beginPath();ctx.roundRect?ctx.roundRect(c.devX-58,c.devY-15,64,30,6):ctx.rect(c.devX-58,c.devY-15,64,30);ctx.fill();ctx.stroke();
+  ctx.fillStyle='#8fa0a8';ctx.fillText(c.dev,c.devX-54,c.devY+4);
+ });
+ const railTop=ports[0].y-30, railH=ports[ports.length-1].y-railTop+40;
+ ctx.fillStyle='#171f25';ctx.strokeStyle='#2c3944';
+ ctx.beginPath();ctx.roundRect?ctx.roundRect(RACKX-34,railTop,168,railH,10):ctx.rect(RACKX-34,railTop,168,railH);ctx.fill();ctx.stroke();
+ ports.forEach(p=>{
+  if(p.header){ctx.fillStyle='#9fb0b8';ctx.font='12px system-ui';ctx.fillText(p.header,p.x+24,p.y-24);}
+  ctx.save();ctx.translate(p.x,p.y);
+  ctx.save();ctx.scale(1.3,1.3);drawShape(p.shape,'#0e1418',0);ctx.restore();
+  drawShape(p.shape,p.color,0);
+  ctx.restore();
+ });
+ cables.forEach(c=>{
+  stepCable(c,dt);
+  const pts=c.pts;
+  ctx.beginPath();ctx.moveTo(pts[0].x,pts[0].y);
+  for(let i=1;i<pts.length;i++)ctx.lineTo(pts[i].x,pts[i].y);
+  ctx.strokeStyle=c.type.color;
+  ctx.lineWidth=c.dragging?7:5.5;ctx.lineJoin='round';ctx.lineCap='round';ctx.stroke();
+  const end=pts[pts.length-1];
+  if(!c.dragging&&c.connectedPort==null){
+   const a=0.22+0.14*Math.sin(ts/280+c.devY);
+   ctx.beginPath();ctx.fillStyle='rgba(255,255,255,'+a.toFixed(2)+')';ctx.arc(end.x,end.y,13,0,Math.PI*2);ctx.fill();
+  }
+  ctx.save();ctx.translate(end.x,end.y);
+  drawShape(c.type.shape,c.type.color,c.type.shape==='rectA'?c.angle:0);
+  ctx.restore();
+ });
+ if(grabbed!=null){
+  const c=cables[grabbed];
+  if(c.type.shape==='rectA'){
+   const end=c.pts[SEG];let near=null,nd=70;
+   ports.forEach(p=>{if(p.shape==='rectA'){const d=Math.hypot(p.x-end.x,p.y-end.y);if(d<nd){nd=d;near=p;}}});
+   if(near){
+    const diff=angDiff(c.angle,0),ok=Math.abs(diff)<=15;
+    ctx.strokeStyle=ok?'#3ec48f':'#e0a020';ctx.lineWidth=2;ctx.setLineDash([4,4]);
+    ctx.beginPath();ctx.arc(near.x,near.y,22,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle=ok?'#3ec48f':'#e0a020';ctx.font='12px system-ui';ctx.textAlign='center';
+    ctx.fillText(ok?'aligned ✓':Math.round(diff)+'°',near.x,near.y-30);ctx.textAlign='left';
+   }
+  }
+ }
+ if(running)requestAnimationFrame(draw);
+}
+
+function toast(msg,cls){
+ const t=document.getElementById('toast');
+ t.textContent=msg;t.className='show '+cls;
+ clearTimeout(toast._h);toast._h=setTimeout(()=>t.className='',2600);
+}
+
+function evalCable(c){
+ if(c.connectedPort==null)return null;
+ const p=ports[c.connectedPort];
+ const correct=p.rating===c.type.rating;
+ const straight=Math.abs(p.y-c.devY)<=STRAIGHT_TOL;
+ let pts=correct?15:6;
+ if(!straight)pts=Math.max(0,pts-STRAIGHT_PENALTY);
+ return {port:p,correct,straight,pts};
+}
+
+function recompute(){
+ let score=0,unsorted=0,max=0;
+ cables.forEach(c=>{
+  max+=15;
+  const e=evalCable(c);
+  if(!e){unsorted++;return;}
+  score+=e.pts;
+  if(!e.correct)unsorted++;
+ });
+ document.getElementById('score').textContent=score;
+ document.getElementById('left').textContent=unsorted;
+ if(unsorted===0)endGame(true);
+ return {score,max};
+}
+
+function nearestPort(x,y,shape){
+ let best=null,bd=40;
+ ports.forEach(p=>{if(p.shape!==shape)return;const d=Math.hypot(p.x-x,p.y-y);if(d<bd){bd=d;best=p;}});
+ return best;
+}
+function toCanvasXY(e){
+ const r=cv.getBoundingClientRect();
+ const cx=(e.touches?e.touches[0].clientX:e.clientX)-r.left;
+ const cy=(e.touches?e.touches[0].clientY:e.clientY)-r.top;
+ return {x:cx*(W/r.width),y:cy*(H/r.height)};
+}
+function onMove(e){const p=toCanvasXY(e);mouse.x=p.x;mouse.y=p.y;if(e.touches)e.preventDefault();}
+function onDown(e){
+ if(!running)return;
+ const p=toCanvasXY(e);mouse.x=p.x;mouse.y=p.y;
+ for(let i=cables.length-1;i>=0;i--){
+  const end=cables[i].pts[SEG];
+  if(Math.hypot(end.x-mouse.x,end.y-mouse.y)<24){
+   if(cables[i].connectedPort!=null){ports[cables[i].connectedPort].occupant=null;cables[i].connectedPort=null;}
+   cables[i].dragging=true;
+   cables.push(cables.splice(i,1)[0]);grabbed=cables.length-1;
+   document.getElementById('fact').innerHTML='<b>'+cables[grabbed].type.name+':</b> '+cables[grabbed].type.fact;
+   break;
+  }
+ }
+}
+function onUp(){
+ if(grabbed==null)return;
+ const c=cables[grabbed],end=c.pts[SEG];
+ const p=nearestPort(end.x,end.y,c.type.shape);
+ if(p){
+  if(c.type.shape==='rectA'&&Math.abs(angDiff(c.angle,0))>15){
+   toast('🔄 Off by '+Math.round(Math.abs(angDiff(c.angle,0)))+'° — hold R near the port to line it up.','warn');
+   c.restX=end.x;c.restY=end.y;
+  }else{
+   if(p.occupant!=null){const o=cables[p.occupant];o.connectedPort=null;o.restX=p.x+30;o.restY=p.y+40;}
+   if(c.type.shape==='rectA')c.angle=0;
+   c.connectedPort=p.idx;p.occupant=grabbed;
+   const e=evalCable(c);
+   let msg=e.correct?'✅ Seated in '+p.label+'.':'⚠️ '+(mismatchNote[c.kind]||'Wrong speed for this port.');
+   if(!e.straight)msg+=' Crooked run (\u2212'+STRAIGHT_PENALTY+' pts) — try a port in this row.';
+   toast(msg,e.correct&&e.straight?'good':'warn');
+  }
+ }else{
+  const wrong=ports.find(pp=>pp.shape!==c.type.shape&&Math.hypot(pp.x-end.x,pp.y-end.y)<40);
+  if(wrong)toast('❌ A '+c.type.name+' plug doesn\'t fit a '+wrong.label+' port.','bad');
+  c.connectedPort=null;c.restX=end.x;c.restY=end.y;
+ }
+ c.dragging=false;grabbed=null;
+ recompute();
+}
+const keys={};
+window.addEventListener('keydown',e=>keys[e.key.toLowerCase()]=true);
+window.addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+cv.addEventListener('mousemove',onMove);cv.addEventListener('mousedown',onDown);
+window.addEventListener('mouseup',onUp);
+cv.addEventListener('touchmove',onMove,{passive:false});
+cv.addEventListener('touchstart',onDown);cv.addEventListener('touchend',onUp);
+
+function fmtTime(s){const m=Math.floor(s/60),ss=s%60;return m+':'+(ss<10?'0':'')+ss;}
+function tick(){
+ if(!running)return;
+ timeLeft--;document.getElementById('time').textContent=fmtTime(Math.max(0,timeLeft));
+ if(timeLeft<=0)endGame(false);
+}
+
+function endGame(won){
+ if(!running)return;running=false;clearInterval(timerHandle);
+ const {score,max}=recompute(),pct=score/max;
+ const grade=pct>=0.9?'S':pct>=0.7?'A':pct>=0.5?'B':'C';
+ document.getElementById('grade').textContent=grade;
+ document.getElementById('finalScore').textContent=score+' / '+max+' points'+(won?' — full rack patched!':' — time ran out.');
+ const ul=document.getElementById('breakdown');ul.innerHTML='';
+ cables.forEach(c=>{
+  const li=document.createElement('li');
+  const e=evalCable(c);
+  if(!e){li.textContent=c.dev+' ('+c.type.name+'): never connected.';}
+  else{
+   let t=e.correct?'perfect match':(mismatchNote[c.kind]||'wrong rating');
+   if(!e.straight)t+=', crooked run (\u2212'+STRAIGHT_PENALTY+')';
+   li.textContent=c.dev+' ('+c.type.name+'): '+t+'.';
+  }
+  ul.appendChild(li);
+ });
+ document.getElementById('end').className='show';
+}
+
+function startGame(key){
+ const diff=DIFFS[key];
+ document.getElementById('menu').style.display='none';
+ document.getElementById('gameUI').style.display='flex';
+ build(diff);
+ timeLeft=diff.time;
+ document.getElementById('time').textContent=fmtTime(timeLeft);
+ document.getElementById('score').textContent='0';
+ document.getElementById('left').textContent=cables.length;
+ grabbed=null;lastTs=null;running=true;
+ if(timerHandle)clearInterval(timerHandle);
+ timerHandle=setInterval(tick,1000);
+ requestAnimationFrame(draw);
+}
+document.querySelectorAll('.diffBtn').forEach(btn=>btn.addEventListener('click',()=>startGame(btn.dataset.d)));
+</script>
+</body>
+</html>
